@@ -1,12 +1,16 @@
 from pymongo import MongoClient
 import certifi
+import os
 
-MONGO_URI = "mongodb+srv://gudivadasumana_db_user:<db_password>@cluster0.kincsgz.mongodb.net/?appName=Cluster0"
+MONGO_URI = os.getenv("MONGO_URI")
+
+if not MONGO_URI:
+    raise ValueError("MONGO_URI not set")
 
 client = MongoClient(
     MONGO_URI,
     tlsCAFile=certifi.where(),
-    serverSelectionTimeoutMS=5000  # prevents long hangs
+    serverSelectionTimeoutMS=5000
 )
 
 db = client["rate_limiter_db"]
