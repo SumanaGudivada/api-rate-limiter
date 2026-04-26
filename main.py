@@ -20,19 +20,24 @@ r = redis.Redis(
 # ---------------------------
 # Helper: Log request
 # ---------------------------
-def log_request(user_id, status):
-    collection.insert_one({
-        "user_id": user_id,
-        "timestamp": datetime.utcnow(),
-        "status": status
-    })
+def log_request(user_id: str, status: str):
+    try:
+        collection.insert_one({
+            "user_id": user_id,
+            "timestamp": datetime.utcnow(),
+            "status": status
+        })
+    except Exception as e:
+        print("MongoDB logging error:", e)
+
 
 # ---------------------------
 # Health Check
 # ---------------------------
-@app.get("/test")
-def test():
-    return {"status": "working"}
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 
 # ---------------------------
 # Rate Limiter API
@@ -42,14 +47,17 @@ def access_api(user_id: str):
     key = f"user:{user_id}"
     now = datetime.utcnow().timestamp()
 
-    # Redis pipeline (optimized)
-    pipe = r.pipeline()
-    pipe.zadd(key, {now: now})
-    pipe.zremrangebyscore(key, 0, now - WINDOW)
-    pipe.zcard(key)
-    pipe.expire(key, WINDOW)
+    try:
+        pipe = r.pipeline()
+        pipe.zadd(key, {now: now})
+        pipe.zremrangebyscore(key, 0, now - WINDOW)
+        pipe.zcard(key)
+        pipe.expire(key, WINDOW)
 
-    _, _, count, _ = pipe.execute()
+        _, _, count, _ = pipe.execute()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Redis error")
 
     if count > LIMIT:
         log_request(user_id, "blocked")
@@ -61,6 +69,7 @@ def access_api(user_id: str):
         "message": "Request successful",
         "count": count
     }
+
 
 # ---------------------------
 # Analytics: Top Users
@@ -74,8 +83,9 @@ def top_users():
     ]
     return list(collection.aggregate(pipeline))
 
+
 # ---------------------------
-# Analytics: Allowed vs Blocked
+# Analytics: Status Distribution
 # ---------------------------
 @app.get("/analytics/status")
 def status_stats():
@@ -83,6 +93,7 @@ def status_stats():
         {"$group": {"_id": "$status", "count": {"$sum": 1}}}
     ]
     return list(collection.aggregate(pipeline))
+
 
 # ---------------------------
 # Analytics: User History
@@ -93,4 +104,5 @@ def user_history(user_id: str):
         {"user_id": user_id},
         {"_id": 0}
     ).sort("timestamp", -1).limit(10))
+
     return logs
